@@ -1,10 +1,6 @@
-# Idées en cours : 
-# - couleur en fonction de la phase
-# - améliorer la précision en utilisant plus de FFT
-# - la performance en sous échantillonant et économisant des calculs
-# - choisir entre blanc et couleur
 
-#%%
+#%% 
+
 import numpy as np
 from pyqtgraph.Qt import QtGui, QtCore
 import pyqtgraph as pg
@@ -40,22 +36,6 @@ couleurs_bgr = [tuple(int(h[i+1:i+3], 16) for i in (4, 2, 0)) for h in couleurs_
 
 
 
-# stocker le son dans un tableau de longeur 5 secschema_ondes
-
-
-# Fenetre d'affichage
-# pg.setConfigOptions(antialias=True)
-# pg.setConfigOption('imageAxisOrder', 'row-major')
-# app = pg.mkQApp("Plotting Example")
-# fenetre = pg.GraphicsLayoutWidget(show=True,title='schema_Spectre Analyzer')
-# fenetre.setWindowTitle('schema_Spectre Analyzer')
-# fenetre.resize(800,800)
-# fenetre.setBackground('black')
-# fenetre.setGeometry(5, 115, 1910, 1070)
-
-
-
-traces = dict()
 
 from screeninfo import get_monitors
 for m in get_monitors():
@@ -69,6 +49,8 @@ largeur = 800
 hauteur = int(np.round( largeur / ratio_ecran ))
 print('Hauteur de l\'image :',hauteur,'pixels')
 
+
+# On précalcule les anneaux concentriques
 distances = np.ndarray.astype(np.zeros((largeur,hauteur)),dtype=int)
 
 X,Y = np.ix_(np.arange(largeur),np.arange(hauteur))
@@ -86,8 +68,9 @@ echantillonage = 44100 # echantillons par secondes
 echantillons_par_tampon = 2048 # commande la fréquence de rafraichissement qu'on veut a 20Hz
 
 
-
+# la memoire qui va contenir le son du piano pendant les 10 dernières secondes pour le spectre
 memoire = np.zeros(10*echantillonage)
+# la mémoire qui va contenir le volume moyen du son du pad a chaque itération
 enveloppe = np.zeros(10*echantillonage)
 
 temps_derniere_mesure = time.time()
@@ -113,7 +96,7 @@ stream = p.open(
     format=FORMAT,
     channels=CHANNELS,
     rate=echantillonage,
-    input_device_index=2,
+    input_device_index=2, #mettre ici la source de son désirée
     input=True,
     # output=True,
     frames_per_buffer=echantillons_par_tampon,
@@ -123,7 +106,11 @@ stream = p.open(
 
 # 2**(1/12) # = 1.059 (6% entre chaque note)
 
+
 facteur_lissage = 0.2
+# un facteur de lissage entre chaque itération de spectre (lissage vertical sur l'image)
+
+
 # 44100, 4410 : 5kHz a l'index 1000
 # 44100, 22050 : 1kHz a l'index 1000
 # 44100, 44100 : 300Hz a l'index 1000
@@ -138,48 +125,28 @@ facteur_lissage = 0.2
 
 
 
-
-# DIAGRAMME EN BARRES
-# barres_x = np.arange(0, 2 * echantillons_par_tampon, 2)
-# frequences_sortie_fft = np.linspace(0, int(echantillonage / 4),int(longueur_fenetre_spectre/2))
-
-# numeros_notes = [ max(round(np.log2((max(f,1)/55)**12)),0) for f in frequences_sortie_fft ]
-
-# numeros = np.unique(numeros_notes)
-
-# conteneur_barres = fenetre.addPlot(
-#     title='Barres', row=1, col=2
-# )
-# conteneur_barres.setYRange(0, 0.1, padding=0)
-
-# barres = pg.BarGraphItem(
-#     x=numeros,
-#     width=1,
-#     height=0,
-#     brushes=[couleurs_foncees[n%12] for n in numeros]
-# )
-# conteneur_barres.addItem(barres)
-
-
 division_octaves = 96 # 1.45% entre chaque division
+# le nombre de pixels pour chaque octave
+
 
 frequences_notes = [55*2**(i/division_octaves) for i in range(0,8*division_octaves) if 55*2**(i/division_octaves) < 10000]
+# les frequences associées a chaque pixel
 
 len(frequences_notes)
 
 
 
 # IMAGE
+# on précalcule les couleurs
 
-# conteneur_image = fenetre.addPlot(
-#     title='Image', row=1, col=1
-# )
 image = np.zeros(shape=(nombre_de_pixels_frequences,300)) # l'axe temporel en premier, frequentiel ensuite
 image_couleur_reference = np.zeros(shape=(nombre_de_pixels_frequences,300,3)) # l'axe temporel en premier, frequentiel ensuite
 for i in range(0,nombre_de_pixels_frequences):
     for j in range(0,300):
         couleur_boucle = couleurs_bgr[int(round((12*i/division_octaves)))%12]
         hsv = colorsys.rgb_to_hsv(couleur_boucle[2]/255,couleur_boucle[1]/255,couleur_boucle[0]/255)
+
+        # les couleurs changent a chaque ligne
         hsv = ( (hsv[0]+j/300) % 1 , hsv[1], hsv[2])
         rgb = np.asarray( colorsys.hsv_to_rgb(*hsv) )
         bgr = np.flip(np.round(rgb*255,0))
@@ -191,11 +158,209 @@ item_image = pg.ImageItem( image=image_couleur_reference, levels=(0,255) ) # cre
 
 #%%
 
+# initialisation de la fenêtre dans laquelle sera affichée l'image
 cv2.namedWindow("frame", cv2.WINDOW_AUTOSIZE)
 # cv2.namedWindow("carre", cv2.WINDOW_AUTOSIZE)
 
+
+
+def re_echantilloner(arr, n):
+    # n est le nombre d'echantillons moyennés dans chaque groupe
+    end =  n * int(len(arr)/n)
+    return np.mean(arr[:end].reshape(-1, n), 1)
+
+
+
+# une fonction qui prend en entree : 
+# - du son
+# - une résolution voulue en fréquence
+# - 
+# Qui renvoie : un spectre, les fréquences associées
+
+# dictionnaire_precalcul = {}
+
+def bout_de_spectre(son,resolution_hertz,sous_echantillonage):
+    debut = time.time()
+    longueur_fenetre_spectre = int(echantillonage / resolution_hertz)
+    # print("Durée de l\'échantillon : ",longueur_fenetre_spectre/echantillonage, 'secondes')
+
+    # frequences_sortie_fft = np.linspace(0, int(echantillonage/sous_echantillonage / 2),int(echantillonage/2/resolution_hertz/sous_echantillonage))
+
+    son_pour_spectre = re_echantilloner(son[-longueur_fenetre_spectre:], sous_echantillonage)
+    # print('len(son_opour_spectre)',len(son_pour_spectre))
+
+    fenetre_lissage_spectre = np.blackman(len(son_pour_spectre))
+
+    nouveau_spectre = np.fft.fft(
+        fenetre_lissage_spectre * son_pour_spectre
+    )
+    frequences_sortie_fft = np.fft.fftfreq(len(son_pour_spectre), d=sous_echantillonage/echantillonage)[0:int(len(nouveau_spectre) / 2)]
+    # print('frequences sortie fft',frequences_sortie_fft)
+    spectre_amplitude = np.abs(nouveau_spectre[0:int(len(nouveau_spectre) / 2)])
+    # * 2 / ( longueur_fenetre_spectre)
+    # seule la moitié nous intéresse, la deuxième est identique
+    spectre_phase = np.angle(nouveau_spectre[0:int(len(nouveau_spectre) / 2)])
+    decalage = frequences_sortie_fft*2*np.pi*temps_derniere_mesure
+    spectre_phase = (spectre_phase - decalage) % (2*np.pi) - np.pi
+
+    fin = time.time()
+    print('bout de spectre',np.int(np.round((fin-debut)*1000)),'ms avec resolution_hertz', np.round(resolution_hertz,1),' et secondes',np.round(len(son_pour_spectre)/echantillonage,3))
+    return spectre_amplitude / np.sqrt(len(son_pour_spectre)), frequences_sortie_fft, spectre_phase
+
+
+
+def nan_helper(y):
+    """Helper to handle indices and logical indices of NaNs.
+
+    Input:
+        - y, 1d numpy array with possible NaNs
+    Output:
+        - nans, logical indices of NaNs
+        - index, a function, with signature indices= index(logical_indices),
+          to convert logical indices of NaNs to 'equivalent' indices
+    Example:
+        >>> # linear interpolation of NaNs
+        >>> nans, x= nan_helper(y)
+        >>> y[nans]= np.interp(x(nans), x(~nans), y[~nans])
+    """
+
+    return np.isnan(y), lambda z: z.nonzero()[0]
+
+def interpoler(y):
+    nans, x= nan_helper(y)
+    y[nans]= np.interp(x(nans), x(~nans), y[~nans])
+    return y
+
+def grand(tableau):
+    if len(tableau) > 0:
+        return np.max(tableau)
+    return np.nan
+leplusgrand = np.vectorize(grand)
+
+# le mot quantifié fait référence a la "quantization" sur les logiciels de musiques. C'est à dire que cette fonction va rééchantilloner sur une grille logarithmique les données de la transformée de fourrier qui sont sur une linéaire en fréquence
+def spectre_quantifie(
+        son,
+        sous_echantillonage,
+        frequence_min,
+        frequence_max
+    ):
+    debut = time.time()
+
+    frequence_max_arrondie = 55*2**(round(np.log2((max(frequence_max,1)/55))*division_octaves)/division_octaves)
+    frequence_min_arrondie = 55*2**(round(np.log2((max(frequence_min,1)/55))*division_octaves)/division_octaves)
+
+    numero_min = round(np.log2((max(frequence_min,1)/55))*division_octaves)
+    numero_max = round(np.log2((max(frequence_max,1)/55))*division_octaves)
+    # print('Numéros de pixels :',numero_min,numero_max)
+
+    # print("Frequences arrondies :",frequence_min_arrondie,frequence_max_arrondie)
+
+
+    resolution_hertz = frequence_min *( 2**(1/division_octaves) - 1 ) * 2
+    # print('Résolution :',resolution_hertz,'hertz')
+    # print('Sous echantillonage :',echantillonage / 2 / frequence_max,'frequence max :',frequence_max)
+    sous_echantillonage = np.maximum(int(np.floor(echantillonage / 2 / frequence_max / 2)), 1)
+    # sous_echantillonage = 1
+    
+
+    spectre_amplitude, frequences_sortie_fft, spectre_phase = bout_de_spectre(son,resolution_hertz,sous_echantillonage)
+    # print('Frequences sortie fft :',np.min(frequences_sortie_fft),np.max(frequences_sortie_fft))
+
+    # on enleve les bornes inf et sup
+    spectre_filtre = [p for i, p in enumerate(spectre_amplitude) if frequences_sortie_fft[i] < frequence_max_arrondie and frequences_sortie_fft[i] >= frequence_min_arrondie]
+
+    phases_filtrees = [p for i, p in enumerate(spectre_phase) if frequences_sortie_fft[i] < frequence_max_arrondie and frequences_sortie_fft[i] >= frequence_min_arrondie]
+
+    frequences_filtrees = [f for f in frequences_sortie_fft if f < frequence_max_arrondie and f >= frequence_min_arrondie]
+
+    # on fait l'intégrale sur la grille logarithmique
+
+    numeros_frequence = [ max(round(np.log2((max(f,1)/55))*division_octaves),0) for f in frequences_filtrees ]
+
+
+    frequences_pixels = [f for f in frequences_notes if f < frequence_max_arrondie and f >= frequence_min_arrondie]
+
+    # print('Fréquences pixels :',len(frequences_pixels),'Fréquences filtrées :',len(frequences_filtrees))
+    # print('len(np.unique(numeros_frequence))',len(np.unique(numeros_frequence)))
+    # print('len(numeros_frequence), len(spectre_filtre)',len(numeros_frequence),len(spectre_filtre))
+
+    integrale_phase = np.bincount(numeros_frequence,phases_filtrees)
+    intervalles = np.bincount(numeros_frequence)
+    intervalles[intervalles==0] = 1
+    # il y a des intervalles avec des zeros (resolution_hertz trop faible)
+
+    # alternative à l'intégrale : on prend le maximum de chaque intervalle
+
+    pixels_uniques = np.unique(numeros_frequence, return_index=True)
+    # print('pixels',numeros_frequence,pixels_uniques)
+    volumes = leplusgrand(np.split(spectre_filtre, pixels_uniques[1][1:]))
+
+    numeros_pixels = np.arange(numero_min,numero_max+1)
+    volumes_pixels = np.full(numero_max-numero_min+1,np.nan)
+    # print('numeros_pixels',numeros_pixels,pixels_uniques)
+    volumes_pixels[np.isin(numeros_pixels,pixels_uniques[0])] = volumes
+
+    # volumes_pixels = interpoler(volumes_pixels)
+    # print('volumes pixels',volumes_pixels)
+
+
+    # volumes = integrale[numero_min:(numero_max+1)] / intervalles[numero_min:(numero_max+1)]
+    phases = integrale_phase[numero_min:(numero_max+1)] / intervalles[numero_min:(numero_max+1)]
+    # print(len(volumes[numero_min:(numero_max+1)]), len(frequences_pixels),len(np.unique(numeros_frequence)))
+    fin = time.time()
+    print('spectre quantifié',np.int(np.round((fin-debut)*1000)),'ms avec frequence max',np.round(frequence_max),'et sous echantillonage',sous_echantillonage)
+    # print('Fréquence min et max :',frequence_min,frequence_max)
+    # print('Fréquences pixels :',len(frequences_pixels),'Fréquences filtrées :',len(frequences_filtrees),'Volumes pixels :',len(volumes_pixels),'Phases :',len(phases))
+
+    volumes = volumes[0:len(frequences_pixels)]
+    phases = phases[0:len(frequences_pixels)]
+    # phases = np.concatenate([phases,np.zeros(len(frequences_pixels)-len(phases))])
+
+    return volumes_pixels[:-1], frequences_pixels, phases
+    # on interpole les valeurs nulles
+
+
+# cette fonction effectue plusieurs fois la transformée de fourrier du son sur différentes fenêtres et différents sous-échantillonages. Le but est d'avoir une meilleur résolution spectrale dans les basses fréquences ainsi qu'une plus faible latence dans les aigus.
+def spectre_complet(son):
+    debut = time.time()
+
+    sous_echantillonage = 1
+    n = 4
+    # diviser le domaine 55-10k en n bouts logarythmiques
+    bornes = [ 55 * np.exp(i * (np.log(10000)-np.log(55))/n) for i in np.arange(n+1) ]
+    # print(bornes)
+
+    donnees = [spectre_quantifie(son,sous_echantillonage,bornes[i],bornes[i+1]) for i in np.arange(n)]
+    # print(len(donnees))
+
+    volumes = np.concatenate([segment[0] for segment in donnees]) / 10
+    frequences_pixels = np.concatenate([segment[1] for segment in donnees])
+    nouvelles_phases = np.concatenate([segment[2] for segment in donnees])
+    
+    # print('Pixels interpolés :',round(len(volumes[np.isnan(volumes)]) / len(volumes) * 100),'%')
+    volumes = interpoler(volumes)
+    # volumes_1, frequences_pixels_1, phases_1 = spectre_quantifie(son,sous_echantillonage,55,200)
+
+    # volumes_2, frequences_pixels_2, phases_2 = spectre_quantifie(son,sous_echantillonage,200,10000)
+    # volumes = np.concatenate((volumes_1, volumes_2)) / 10
+    # par mesure empirique l'amplitude maximum est de 10
+
+    # phases = np.concatenate((phases_1, phases_2))
+    # frequences_pixels = np.concatenate((frequences_pixels_1, frequences_pixels_2))
+    fin = time.time()
+    print('spectre complet',np.int(np.round((fin-debut)*1000)),'ms')
+    
+    return volumes, frequences_pixels, nouvelles_phases
+
+carre_blanc = np.ones(shape=(10,10))
+
+
+
+# un index pour se rappeler a quelle ligne de couleur on en est
 index_couleur = 0
 
+
+# la fonction qui prend en entrée des rangées de pixels noir et blanc et qui les assemble en une image en couleur
 def tracer(schema, data_x, data_y):
     global image, image_couleur, enveloppe, index_couleur
 
@@ -304,200 +469,12 @@ def tracer(schema, data_x, data_y):
 
     print('tracer',np.int(np.round((fin-debut)*1000)),'ms')
 
-# def note(frequence):
-
-
-def re_echantilloner(arr, n):
-    # n est le nombre d'echantillons moyennés dans chaque groupe
-    end =  n * int(len(arr)/n)
-    return np.mean(arr[:end].reshape(-1, n), 1)
 
 
 
-# une fonction qui prend en entree : 
-# - du son
-# - une résolution voulue en fréquence
-# - 
-# Qui renvoie : un spectre, les fréquences associées
 
-# dictionnaire_precalcul = {}
-
-def bout_de_spectre(son,resolution_hertz,sous_echantillonage):
-    debut = time.time()
-    longueur_fenetre_spectre = int(echantillonage / resolution_hertz)
-    # print("Durée de l\'échantillon : ",longueur_fenetre_spectre/echantillonage, 'secondes')
-
-    # frequences_sortie_fft = np.linspace(0, int(echantillonage/sous_echantillonage / 2),int(echantillonage/2/resolution_hertz/sous_echantillonage))
-
-    son_pour_spectre = re_echantilloner(son[-longueur_fenetre_spectre:], sous_echantillonage)
-    # print('len(son_opour_spectre)',len(son_pour_spectre))
-
-    fenetre_lissage_spectre = np.blackman(len(son_pour_spectre))
-
-    nouveau_spectre = np.fft.fft(
-        fenetre_lissage_spectre * son_pour_spectre
-    )
-    frequences_sortie_fft = np.fft.fftfreq(len(son_pour_spectre), d=sous_echantillonage/echantillonage)[0:int(len(nouveau_spectre) / 2)]
-    # print('frequences sortie fft',frequences_sortie_fft)
-    spectre_amplitude = np.abs(nouveau_spectre[0:int(len(nouveau_spectre) / 2)])
-    # * 2 / ( longueur_fenetre_spectre)
-    # seule la moitié nous intéresse, la deuxième est identique
-    spectre_phase = np.angle(nouveau_spectre[0:int(len(nouveau_spectre) / 2)])
-    decalage = frequences_sortie_fft*2*np.pi*temps_derniere_mesure
-    spectre_phase = (spectre_phase - decalage) % (2*np.pi) - np.pi
-
-    fin = time.time()
-    print('bout de spectre',np.int(np.round((fin-debut)*1000)),'ms avec resolution_hertz', np.round(resolution_hertz,1),' et secondes',np.round(len(son_pour_spectre)/echantillonage,3))
-    return spectre_amplitude / np.sqrt(len(son_pour_spectre)), frequences_sortie_fft, spectre_phase
-
-
-
-def nan_helper(y):
-    """Helper to handle indices and logical indices of NaNs.
-
-    Input:
-        - y, 1d numpy array with possible NaNs
-    Output:
-        - nans, logical indices of NaNs
-        - index, a function, with signature indices= index(logical_indices),
-          to convert logical indices of NaNs to 'equivalent' indices
-    Example:
-        >>> # linear interpolation of NaNs
-        >>> nans, x= nan_helper(y)
-        >>> y[nans]= np.interp(x(nans), x(~nans), y[~nans])
-    """
-
-    return np.isnan(y), lambda z: z.nonzero()[0]
-
-def interpoler(y):
-    nans, x= nan_helper(y)
-    y[nans]= np.interp(x(nans), x(~nans), y[~nans])
-    return y
-
-def grand(tableau):
-    if len(tableau) > 0:
-        return np.max(tableau)
-    return np.nan
-leplusgrand = np.vectorize(grand)
-
-def spectre_quantifie(
-        son,
-        sous_echantillonage,
-        frequence_min,
-        frequence_max
-    ):
-    debut = time.time()
-
-    frequence_max_arrondie = 55*2**(round(np.log2((max(frequence_max,1)/55))*division_octaves)/division_octaves)
-    frequence_min_arrondie = 55*2**(round(np.log2((max(frequence_min,1)/55))*division_octaves)/division_octaves)
-
-    numero_min = round(np.log2((max(frequence_min,1)/55))*division_octaves)
-    numero_max = round(np.log2((max(frequence_max,1)/55))*division_octaves)
-    # print('Numéros de pixels :',numero_min,numero_max)
-
-    # print("Frequences arrondies :",frequence_min_arrondie,frequence_max_arrondie)
-
-
-    resolution_hertz = frequence_min *( 2**(1/division_octaves) - 1 ) * 2
-    # print('Résolution :',resolution_hertz,'hertz')
-    # print('Sous echantillonage :',echantillonage / 2 / frequence_max,'frequence max :',frequence_max)
-    sous_echantillonage = np.maximum(int(np.floor(echantillonage / 2 / frequence_max / 2)), 1)
-    # sous_echantillonage = 1
-    
-
-    spectre_amplitude, frequences_sortie_fft, spectre_phase = bout_de_spectre(son,resolution_hertz,sous_echantillonage)
-    # print('Frequences sortie fft :',np.min(frequences_sortie_fft),np.max(frequences_sortie_fft))
-
-    # on enleve les bornes inf et sup
-    spectre_filtre = [p for i, p in enumerate(spectre_amplitude) if frequences_sortie_fft[i] < frequence_max_arrondie and frequences_sortie_fft[i] >= frequence_min_arrondie]
-
-    phases_filtrees = [p for i, p in enumerate(spectre_phase) if frequences_sortie_fft[i] < frequence_max_arrondie and frequences_sortie_fft[i] >= frequence_min_arrondie]
-
-    frequences_filtrees = [f for f in frequences_sortie_fft if f < frequence_max_arrondie and f >= frequence_min_arrondie]
-
-    # on fait l'intégrale sur la grille logarithmique
-
-    numeros_frequence = [ max(round(np.log2((max(f,1)/55))*division_octaves),0) for f in frequences_filtrees ]
-
-
-    frequences_pixels = [f for f in frequences_notes if f < frequence_max_arrondie and f >= frequence_min_arrondie]
-
-    # print('Fréquences pixels :',len(frequences_pixels),'Fréquences filtrées :',len(frequences_filtrees))
-    # print('len(np.unique(numeros_frequence))',len(np.unique(numeros_frequence)))
-    # print('len(numeros_frequence), len(spectre_filtre)',len(numeros_frequence),len(spectre_filtre))
-
-    integrale = np.bincount(numeros_frequence,spectre_filtre)
-    integrale_phase = np.bincount(numeros_frequence,phases_filtrees)
-    intervalles = np.bincount(numeros_frequence)
-    intervalles[intervalles==0] = 1
-    # il y a des intervalles avec des zeros (resolution_hertz trop faible)
-
-    # alternative à l'intégrale : on prend le maximum de chaque intervalle
-
-    pixels_uniques = np.unique(numeros_frequence, return_index=True)
-    # print('pixels',numeros_frequence,pixels_uniques)
-    volumes = leplusgrand(np.split(spectre_filtre, pixels_uniques[1][1:]))
-
-    numeros_pixels = np.arange(numero_min,numero_max+1)
-    volumes_pixels = np.full(numero_max-numero_min+1,np.nan)
-    # print('numeros_pixels',numeros_pixels,pixels_uniques)
-    volumes_pixels[np.isin(numeros_pixels,pixels_uniques[0])] = volumes
-
-    # volumes_pixels = interpoler(volumes_pixels)
-    # print('volumes pixels',volumes_pixels)
-
-
-    # volumes = integrale[numero_min:(numero_max+1)] / intervalles[numero_min:(numero_max+1)]
-    phases = integrale_phase[numero_min:(numero_max+1)] / intervalles[numero_min:(numero_max+1)]
-    # print(len(volumes[numero_min:(numero_max+1)]), len(frequences_pixels),len(np.unique(numeros_frequence)))
-    fin = time.time()
-    print('spectre quantifié',np.int(np.round((fin-debut)*1000)),'ms avec frequence max',np.round(frequence_max),'et sous echantillonage',sous_echantillonage)
-    # print('Fréquence min et max :',frequence_min,frequence_max)
-    # print('Fréquences pixels :',len(frequences_pixels),'Fréquences filtrées :',len(frequences_filtrees),'Volumes pixels :',len(volumes_pixels),'Phases :',len(phases))
-
-    volumes = volumes[0:len(frequences_pixels)]
-    phases = phases[0:len(frequences_pixels)]
-    # phases = np.concatenate([phases,np.zeros(len(frequences_pixels)-len(phases))])
-
-    return volumes_pixels[:-1], frequences_pixels, phases
-    # on interpole les valeurs nulles
-
-
-
-def spectre_complet(son):
-    debut = time.time()
-
-    sous_echantillonage = 1
-    n = 4
-    # diviser le domaine 55-10k en n bouts logarythmiques
-    bornes = [ 55 * np.exp(i * (np.log(10000)-np.log(55))/n) for i in np.arange(n+1) ]
-    # print(bornes)
-
-    donnees = [spectre_quantifie(son,sous_echantillonage,bornes[i],bornes[i+1]) for i in np.arange(n)]
-    # print(len(donnees))
-
-    volumes = np.concatenate([segment[0] for segment in donnees]) / 10
-    frequences_pixels = np.concatenate([segment[1] for segment in donnees])
-    nouvelles_phases = np.concatenate([segment[2] for segment in donnees])
-    
-    # print('Pixels interpolés :',round(len(volumes[np.isnan(volumes)]) / len(volumes) * 100),'%')
-    volumes = interpoler(volumes)
-    # volumes_1, frequences_pixels_1, phases_1 = spectre_quantifie(son,sous_echantillonage,55,200)
-
-    # volumes_2, frequences_pixels_2, phases_2 = spectre_quantifie(son,sous_echantillonage,200,10000)
-    # volumes = np.concatenate((volumes_1, volumes_2)) / 10
-    # par mesure empirique l'amplitude maximum est de 10
-
-    # phases = np.concatenate((phases_1, phases_2))
-    # frequences_pixels = np.concatenate((frequences_pixels_1, frequences_pixels_2))
-    fin = time.time()
-    print('spectre complet',np.int(np.round((fin-debut)*1000)),'ms')
-    
-    return volumes, frequences_pixels, nouvelles_phases
-
-carre_blanc = np.ones(shape=(10,10))
-
-def update():
+# la
+def mettre_a_jour():
     global memoire, spectre, phase, temps_derniere_mesure, carre_blanc, enveloppe
     # print('Etape 1: lire le son')
     data = stream.read(echantillons_par_tampon,exception_on_overflow = False)
@@ -542,44 +519,17 @@ def update():
     tracer(schema='image', data_x=frequences_pixels, data_y=spectre)
     os.system('clear')
 
-#%%
 
-# import matplotlib.pyplot as plt
-# volumes, frequences_pixels = spectre_complet(np.sin(np.arange(0,10*44100)/44100*5000*2*np.pi))
-# plt.xscale("log")
-# plt.plot(frequences_pixels,volumes)
-# plt.show()
 
-# A chaque lecture la fenetre se decale de 2048 echantillons
-# pour une frequence de 1000 Hz la phase se decale donc de 
-
-# signal = np.sin(np.arange(0,440)/440*2*np.pi*1000 + np.pi/2*10)
-# blackman = np.kaiser(440,0)
-# fourier = np.fft.fft(signal*blackman)
-# n = signal.size
-# timestep = 1/440
-# freq = np.fft.fftfreq(n, d=timestep)[0:int(len(fourier) / 2)]
-# volumes = np.abs(fourier[0:int(len(fourier) / 2)])
-# phases = np.angle(fourier[0:int(len(fourier) / 2)])
-# freq.shape, volumes.shape
-
-# plt.xscale("log")
-# plt.plot(freq,volumes)
-# plt.show()
 
 #%%
 
-# def animation():
-# timer = QtCore.QTimer()
-# timer.timeout.connect(update)
-# timer.start(20)
-# # démarre l'éxecution
-# pg.exec()
+
 
 avant = time.time()
 
 while True:
-    update()
+    mettre_a_jour()
     # print('Temps depuis la derniere image',np.round((time.time()-avant)*1000,0),'ms')
     print('Fréquence de rafraichissement',np.round(1/(time.time()-avant),0),'Hz')
     avant = time.time()
