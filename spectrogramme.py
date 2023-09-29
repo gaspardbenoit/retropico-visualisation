@@ -489,8 +489,8 @@ def mettre_a_jour():
 
     
     sons = (np.frombuffer(data, dtype=np.int16) ) / 1024 / 32
-    son2 = sons[0::2]
-    son = sons[1::2]
+    son = sons[0::2]
+    son2 = sons[1::2]
     # print('Len(son)',len(son))
     maximum = np.mean(np.abs(son2))
     enveloppe = np.roll(enveloppe,shift=1)
