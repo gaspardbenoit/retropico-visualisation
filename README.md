@@ -5,7 +5,7 @@
 Installer les paquets Python 3 dans le fichier `requirements.txt`
 
 ## Utilisation
-1. Brancher une carte son Scarlett Solo USB avec le Piano sur l'entrée 1 et le pad sur l'entrée 2
+1. Brancher une carte son Scarlett Solo USB avec le piano sur l'entrée 1 et le pad sur l'entrée 2
 2. Démarrer l'application en éxécutant dans le terminal la commande `python spectrogramme.py`
 
 
@@ -20,3 +20,9 @@ Installer les paquets Python 3 dans le fichier `requirements.txt`
 1. Transformation du signal en enveloppe d'amplitude
 2. Convolution de l'enveloppe avec des cercles concentriques
 3. Multiplication à l'image du piano
+
+## Exemple
+
+https://github.com/gaspardbenoit/retropico-visualisation/assets/142936687/9633a3e3-d7cd-4ad8-b54b-8090ece5e330
+
+
