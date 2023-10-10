@@ -2,12 +2,13 @@
 #%% 
 
 import numpy as np
-from pyqtgraph.Qt import QtGui, QtCore
-import pyqtgraph as pg
 import cv2
 import pyaudio
 import colorsys
 import os
+import traceback
+import wave
+import sys
 
 # import sys
 import time
@@ -65,7 +66,10 @@ distances = distances.flatten().astype(int)
 FORMAT = pyaudio.paInt16
 CHANNELS = 2
 echantillonage = 44100 # echantillons par secondes
+
 echantillons_par_tampon = 2048 # commande la fréquence de rafraichissement qu'on veut a 20Hz
+if sys.argv[1]:
+    echantillons_par_tampon = int(echantillons_par_tampon / 2)
 
 
 # la memoire qui va contenir le son du piano pendant les 10 dernières secondes pour le spectre
@@ -93,17 +97,28 @@ for i in range(0, numdevices):
         if p.get_device_info_by_host_api_device_index(0, i).get('name') == 'Scarlett Solo USB' :
             identifiant_carte_son = i
 
+if sys.argv[1]:
+    print('Ouverture du fichier',sys.argv[1])
+    fichier_wav = wave.open(sys.argv[1], 'rb')
+    # stream = p.open(
+    #     format=p.get_format_from_width(wf.getsampwidth()),
+    #     channels=wf.getnchannels(),
+    #     rate=wf.getframerate(),
+    #     output = True,
+    #     # output=True,
+    # )
+else :
+    stream = p.open(
+        format=FORMAT,
+        channels=CHANNELS,
+        rate=echantillonage,
+        input_device_index=identifiant_carte_son, #mettre ici la source de son désirée
+        input=True,
+        # output=True,
+        frames_per_buffer=echantillons_par_tampon,
+    )
 
 
-stream = p.open(
-    format=FORMAT,
-    channels=CHANNELS,
-    rate=echantillonage,
-    input_device_index=identifiant_carte_son, #mettre ici la source de son désirée
-    input=True,
-    # output=True,
-    frames_per_buffer=echantillons_par_tampon,
-)
 
 # exit()
 
@@ -156,7 +171,7 @@ for i in range(0,nombre_de_pixels_frequences):
         image_couleur_reference[i,j,:] = bgr
 image_couleur = np.zeros(shape=(nombre_de_pixels_frequences,300,3)) # np.asarray(image_couleur_reference,dtype='int')
 image 
-item_image = pg.ImageItem( image=image_couleur_reference, levels=(0,255) ) # create example image
+# item_image = pg.ImageItem( image=image_couleur_reference, levels=(0,255) ) # create example image
 # conteneur_image.addItem( item_image )
 
 #%%
@@ -401,6 +416,7 @@ def tracer(schema, data_x, data_y):
     image_couleur[:,-1,2] = np.clip(np.multiply(image_couleur_reference[0:nombre_de_pixels_frequences,index_couleur%300,2], data_y)*100,0,255)
 
     index_couleur += 1
+    print('Index couleur',index_couleur)
 
 
 
@@ -479,18 +495,31 @@ def tracer(schema, data_x, data_y):
 # la
 def mettre_a_jour():
     global memoire, spectre, phase, temps_derniere_mesure, carre_blanc, enveloppe
-    # print('Etape 1: lire le son')
-    data = stream.read(echantillons_par_tampon,exception_on_overflow = False)
-    
     temps_derniere_mesure = time.time()
+
+    print('Etape 1: lire le son')
+    if sys.argv[1]:
+        data = fichier_wav.readframes(echantillons_par_tampon)
+        son = (np.frombuffer(data, dtype=np.int16) ) / 1024 / 32
+
+        son2 = son * 0
+    else :
+        data = stream.read(echantillons_par_tampon,exception_on_overflow = False)
+        sons = (np.frombuffer(data, dtype=np.int16) ) / 1024 / 32
+        son = sons[0::2]
+        son2 = sons[1::2]
+    
+
+
+
+
+
     # data = struct.unpack(str(2 * echantillons_par_tampon) + 'B', data)
     # data = np.array(data, dtype='b')[::2] + 128
     
 
-    
-    sons = (np.frombuffer(data, dtype=np.int16) ) / 1024 / 32
-    son = sons[0::2]
-    son2 = sons[1::2]
+
+
     # print('Len(son)',len(son))
     maximum = np.mean(np.abs(son2))
     enveloppe = np.roll(enveloppe,shift=1)
@@ -520,7 +549,10 @@ def mettre_a_jour():
 
 
     tracer(schema='image', data_x=frequences_pixels, data_y=spectre)
+
     os.system('clear')
+    
+
 
 
 
@@ -532,7 +564,11 @@ def mettre_a_jour():
 avant = time.time()
 
 while True:
-    mettre_a_jour()
+    try :
+        mettre_a_jour()
+    except Exception as error:
+        tb = traceback.format_exc()
+        print(tb)
     # print('Temps depuis la derniere image',np.round((time.time()-avant)*1000,0),'ms')
     print('Fréquence de rafraichissement',np.round(1/(time.time()-avant),0),'Hz')
     avant = time.time()
