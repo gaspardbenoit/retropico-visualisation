@@ -507,7 +507,7 @@ def mettre_a_jour():
         son_batterie = (np.frombuffer(donnees_batterie, dtype=np.int16) ) / 1024 / 32 
     else :
         data = stream.read(echantillons_par_tampon,exception_on_overflow = False)
-        sons = (np.frombuffer(data, dtype=np.int16) ) / 1024 / 32
+        sons = (np.frombuffer(data, dtype=np.int16) ) / 1024 / 32 / 2
         son_piano = sons[0::2]
         son_batterie = sons[1::2]
     
