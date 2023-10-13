@@ -5,8 +5,13 @@
 Installer les paquets Python 3 dans le fichier `requirements.txt`
 
 ## Utilisation
+Mode em vivo :
 1. Brancher une carte son Scarlett Solo USB avec le piano sur l'entrée 1 et le pad sur l'entrée 2
 2. Démarrer l'application en éxécutant dans le terminal la commande `python spectrogramme.py`
+
+Mode local :
+Démarrer l'application en éxécutant dans le terminal la commande `python spectrogramme.py piano.wav batterie.wav`
+
 
 
 ## Logique du programme
