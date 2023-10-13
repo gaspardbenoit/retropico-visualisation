@@ -98,8 +98,9 @@ for i in range(0, numdevices):
             identifiant_carte_son = i
 
 if sys.argv[1]:
-    print('Ouverture du fichier',sys.argv[1])
-    fichier_wav = wave.open(sys.argv[1], 'rb')
+    print('Ouverture du fichier',sys.argv[1],sys.argv[2])
+    fichier_wav_piano = wave.open(sys.argv[1], 'rb')
+    fichier_wav_batterie = wave.open(sys.argv[2], 'rb')
     # stream = p.open(
     #     format=p.get_format_from_width(wf.getsampwidth()),
     #     channels=wf.getnchannels(),
@@ -499,15 +500,16 @@ def mettre_a_jour():
 
     print('Etape 1: lire le son')
     if sys.argv[1]:
-        data = fichier_wav.readframes(echantillons_par_tampon)
-        son = (np.frombuffer(data, dtype=np.int16) ) / 1024 / 32
-
-        son2 = son * 0
+        donnees_piano = fichier_wav_piano.readframes(echantillons_par_tampon)
+        donnees_batterie = fichier_wav_batterie.readframes(echantillons_par_tampon)
+        son_piano = (np.frombuffer(donnees_piano, dtype=np.int16) ) / 1024 / 32 / 2
+        print(son_piano)
+        son_batterie = (np.frombuffer(donnees_batterie, dtype=np.int16) ) / 1024 / 32 
     else :
         data = stream.read(echantillons_par_tampon,exception_on_overflow = False)
         sons = (np.frombuffer(data, dtype=np.int16) ) / 1024 / 32
-        son = sons[0::2]
-        son2 = sons[1::2]
+        son_piano = sons[0::2]
+        son_batterie = sons[1::2]
     
 
 
@@ -521,7 +523,7 @@ def mettre_a_jour():
 
 
     # print('Len(son)',len(son))
-    maximum = np.mean(np.abs(son2))
+    maximum = np.mean(np.abs(son_batterie))
     enveloppe = np.roll(enveloppe,shift=1)
     nouveau_cercle = np.minimum(maximum * 255 / 20,1)*3+1
     enveloppe[0] = nouveau_cercle
@@ -532,7 +534,7 @@ def mettre_a_jour():
     # cv2.waitKey(5)
     # fenetre.setBackground((luminosite,luminosite,luminosite))
     # data = echantillons_par_tampon * data
-    memoire = np.concatenate((memoire,son))[-(echantillonage*10):]
+    memoire = np.concatenate((memoire,son_piano))[-(echantillonage*10):]
     # on ne garde que les dernieres 10 secondes en mémoire
 
     nouveau_spectre, frequences_pixels, nouvelle_phase = spectre_complet(memoire)
